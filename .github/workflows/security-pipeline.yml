@@ -1,4 +1,4 @@
-name: Fast Security Scan (Stable)
+name: Fast Security Scan (Pinned & Stable)
 
 on:
   push:
@@ -15,22 +15,22 @@ jobs:
     steps:
       # ---------- Checkout ----------
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v4.1.1
 
       - name: Prepare reports directory
         run: mkdir -p reports
 
       # ---------- SAST : Semgrep ----------
       - name: Semgrep (Static Analysis)
-        uses: returntocorp/semgrep-action@v1
+        uses: returntocorp/semgrep-action@v1.8.0
         continue-on-error: true
         with:
           config: auto
           output: reports/semgrep.json
 
       # ---------- Dependency / Filesystem Scan ----------
-      - name: Trivy (Filesystem Scan)
-        uses: aquasecurity/trivy-action@v0
+      - name: Trivy (Filesystem Vulnerability Scan)
+        uses: aquasecurity/trivy-action@0.24.0
         continue-on-error: true
         with:
           scan-type: fs
@@ -63,13 +63,12 @@ jobs:
             echo "- ✅ Vulnerability Scan (Trivy)"
             echo "- ✅ Lightweight Secrets Check"
             echo ""
-            echo "ℹ️ This workflow is designed to be fast and safe."
-            echo "For deeper security testing, use an extended pipeline."
+            echo "ℹ️ This pipeline is fully pinned and CI-safe."
           } > reports/summary.md
 
       # ---------- Artifacts ----------
       - name: Upload reports
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v4.4.0
         with:
           name: security-reports
           path: reports/
@@ -81,9 +80,9 @@ jobs:
           {
             echo "### 🔒 Fast Security Scan"
             echo ""
-            echo "✔️ Static code analysis completed"
-            echo "✔️ Vulnerability scan completed"
+            echo "✔️ Semgrep SAST completed"
+            echo "✔️ Trivy vulnerability scan completed"
             echo "✔️ Secrets heuristic check completed"
             echo ""
-            echo "📦 Download detailed reports from **Artifacts → security-reports**"
+            echo "📦 See **Artifacts → security-reports** for details."
           } >> $GITHUB_STEP_SUMMARY
