@@ -1,4 +1,4 @@
-name: Security Scan (CodeQL v3 + Reports)
+name: Security Scan (Official + Reports)
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 25
 
     permissions:
       contents: read
@@ -25,20 +25,15 @@ jobs:
       - name: Prepare reports folder
         run: mkdir -p reports
 
-      # ---------- CodeQL Initialization ----------
+      # ---------- Initialize CodeQL v4 ----------
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
-          languages: auto
-          output: reports/codeql-database
+          languages: javascript  # JS + EJS
 
-      # Optional: build if repo needs compilation
-      # - name: CodeQL Autobuild
-      #   uses: github/codeql-action/autobuild@v3
-
-      # ---------- Run CodeQL Analysis ----------
+      # ---------- Run CodeQL ----------
       - name: Run CodeQL analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@v4
         with:
           output: reports/codeql-results.sarif
 
@@ -60,14 +55,14 @@ jobs:
         with:
           args: "--redact --verbose --report-format json --report-path reports/gitleaks-report.json"
 
-      # ---------- Simple Commit Secret Check ----------
-      - name: Quick Git-based secrets check
+      # ---------- Quick Git-based Secret Check ----------
+      - name: Quick Git secrets heuristic
         continue-on-error: true
         run: |
           echo "Scanning last 20 commits for secrets..." > reports/quick-secrets.txt
-          git log -n 20 --oneline | grep -E "password|secret|token|apikey|api_key|access_key" >> reports/quick-secrets.txt || echo "No obvious secrets found" >> reports/quick-secrets.txt
+          git log -n 20 --oneline | grep -E "password|secret|token|apikey|api_key|access_key" >> reports/quick-secrets.txt || echo "No secrets found" >> reports/quick-secrets.txt
 
-      # ---------- Generate Quick Scan Markdown ----------
+      # ---------- Generate Quick Markdown Report ----------
       - name: Generate Quick Security Report
         run: |
           echo "# 🚀 Quick Security Scan Report" > reports/quick-scan.md
@@ -76,18 +71,16 @@ jobs:
           echo "**Branch:** ${{ github.ref_name }}" >> reports/quick-scan.md
           echo "" >> reports/quick-scan.md
           echo "## ✅ Scans Performed" >> reports/quick-scan.md
-          echo "- CodeQL (v3, auto-detected languages)" >> reports/quick-scan.md
+          echo "- CodeQL (v4, JavaScript/EJS)" >> reports/quick-scan.md
           echo "- Trivy filesystem scan" >> reports/quick-scan.md
           echo "- Gitleaks secret scan" >> reports/quick-scan.md
-          echo "- Quick Git-based secret heuristic" >> reports/quick-scan.md
+          echo "- Quick git secrets heuristic" >> reports/quick-scan.md
           echo "" >> reports/quick-scan.md
-          echo "## 📄 Notes" >> reports/quick-scan.md
-          echo "- CodeQL SARIF results: reports/codeql-results.sarif" >> reports/quick-scan.md
+          echo "## 📄 Report Files" >> reports/quick-scan.md
+          echo "- CodeQL SARIF: reports/codeql-results.sarif" >> reports/quick-scan.md
           echo "- Trivy report: reports/trivy-report.json" >> reports/quick-scan.md
           echo "- Gitleaks report: reports/gitleaks-report.json" >> reports/quick-scan.md
-          echo "- Quick secret heuristic: reports/quick-secrets.txt" >> reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "⚠️ This is a **fast scan**. For full security analysis, run dedicated pipelines." >> reports/quick-scan.md
+          echo "- Quick secrets heuristic: reports/quick-secrets.txt" >> reports/quick-scan.md
 
       # ---------- Upload Reports ----------
       - name: Upload security reports
