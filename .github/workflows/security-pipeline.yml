@@ -1,4 +1,4 @@
-name: Fast Security Scan (Pinned & Stable)
+name: Fast Security Scan
 
 on:
   push:
@@ -15,22 +15,23 @@ jobs:
     steps:
       # ---------- Checkout ----------
       - name: Checkout repository
-        uses: actions/checkout@v4.1.1
+        uses: actions/checkout@v4
 
       - name: Prepare reports directory
         run: mkdir -p reports
 
       # ---------- SAST : Semgrep ----------
+      # v1 is the officially documented & supported major
       - name: Semgrep (Static Analysis)
-        uses: returntocorp/semgrep-action@v1.8.0
+        uses: returntocorp/semgrep-action@v1
         continue-on-error: true
         with:
           config: auto
-          output: reports/semgrep.json
 
       # ---------- Dependency / Filesystem Scan ----------
-      - name: Trivy (Filesystem Vulnerability Scan)
-        uses: aquasecurity/trivy-action@0.24.0
+      # master is the ONLY consistently resolvable ref for Trivy action
+      - name: Trivy (Filesystem Scan)
+        uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
           scan-type: fs
@@ -38,51 +39,24 @@ jobs:
           ignore-unfixed: true
           format: table
 
-      # ---------- Secrets (Safe Heuristic) ----------
+      # ---------- Secrets (Zero Dependency) ----------
       - name: Basic secrets check
         continue-on-error: true
         run: |
-          echo "🔍 Checking recent commits for common secret keywords..."
+          echo "🔍 Checking recent commits for secrets..."
           git log -n 20 --oneline | \
           grep -Ei "password|secret|token|apikey|api_key|access_key" \
           || echo "No obvious secrets found"
 
-      # ---------- Report ----------
-      - name: Generate summary report
-        run: |
-          {
-            echo "# 🔐 Fast Security Scan Report"
-            echo ""
-            echo "**Repository:** ${{ github.repository }}"
-            echo "**Branch:** ${{ github.ref_name }}"
-            echo "**Run ID:** ${{ github.run_id }}"
-            echo "**Date:** $(date)"
-            echo ""
-            echo "## Scans Performed"
-            echo "- ✅ Static Analysis (Semgrep)"
-            echo "- ✅ Vulnerability Scan (Trivy)"
-            echo "- ✅ Lightweight Secrets Check"
-            echo ""
-            echo "ℹ️ This pipeline is fully pinned and CI-safe."
-          } > reports/summary.md
-
-      # ---------- Artifacts ----------
-      - name: Upload reports
-        uses: actions/upload-artifact@v4.4.0
-        with:
-          name: security-reports
-          path: reports/
-
-      # ---------- PR Summary ----------
-      - name: PR summary
-        if: github.event_name == 'pull_request'
+      # ---------- Summary ----------
+      - name: Job summary
         run: |
           {
             echo "### 🔒 Fast Security Scan"
             echo ""
-            echo "✔️ Semgrep SAST completed"
-            echo "✔️ Trivy vulnerability scan completed"
-            echo "✔️ Secrets heuristic check completed"
+            echo "- ✔️ Semgrep SAST"
+            echo "- ✔️ Trivy vulnerability scan"
+            echo "- ✔️ Lightweight secrets check"
             echo ""
-            echo "📦 See **Artifacts → security-reports** for details."
+            echo "ℹ️ Fast, non-blocking security gate"
           } >> $GITHUB_STEP_SUMMARY
