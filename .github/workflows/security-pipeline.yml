@@ -1,4 +1,4 @@
-name: Security Scan (CodeQL v3 + Trusted Tools)
+name: Security Scan (CodeQL v3 + Reports)
 
 on:
   push:
@@ -8,9 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
-  code-security:
+  security-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     permissions:
       contents: read
@@ -21,21 +21,28 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------- CodeQL Initialization (v3) ----------
+      # ---------- Prepare Reports Folder ----------
+      - name: Prepare reports folder
+        run: mkdir -p reports
+
+      # ---------- CodeQL Initialization ----------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v3
         with:
-          languages: auto   # automatically detect all languages in the repo
+          languages: auto
+          output: reports/codeql-database
 
-      # Optional: Autobuild for compiled languages
+      # Optional: build if repo needs compilation
       # - name: CodeQL Autobuild
       #   uses: github/codeql-action/autobuild@v3
 
       # ---------- Run CodeQL Analysis ----------
       - name: Run CodeQL analysis
         uses: github/codeql-action/analyze@v3
+        with:
+          output: reports/codeql-results.sarif
 
-      # ---------- Vulnerability Scan (Trivy) ----------
+      # ---------- Trivy Filesystem Scan ----------
       - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
@@ -43,33 +50,48 @@ jobs:
           scan-type: fs
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          format: table
+          format: json
+          output: reports/trivy-report.json
 
-      # ---------- Secrets Scan (Gitleaks) ----------
+      # ---------- Gitleaks Secret Scan ----------
       - name: Gitleaks secret scan
         uses: zricethezav/gitleaks-action@v1.3.0
         continue-on-error: true
         with:
-          args: "--redact --verbose"
+          args: "--redact --verbose --report-format json --report-path reports/gitleaks-report.json"
 
       # ---------- Simple Commit Secret Check ----------
-      - name: Basic git secret heuristic
+      - name: Quick Git-based secrets check
         continue-on-error: true
         run: |
-          echo "Scanning last 20 commits for secrets..."
-          git log -n 20 --oneline \
-            | grep -E "password|secret|token|apikey|api_key|access_key" \
-            || echo "No obvious secrets found"
+          echo "Scanning last 20 commits for secrets..." > reports/quick-secrets.txt
+          git log -n 20 --oneline | grep -E "password|secret|token|apikey|api_key|access_key" >> reports/quick-secrets.txt || echo "No obvious secrets found" >> reports/quick-secrets.txt
 
-      # ---------- Summary ----------
-      - name: Security Scan Summary
+      # ---------- Generate Quick Scan Markdown ----------
+      - name: Generate Quick Security Report
         run: |
-          {
-            echo "### 🔒 Security Scan Summary"
-            echo ""
-            echo "- ✔️ CodeQL v3 analysis (auto-detected languages)"
-            echo "- ✔️ Trivy filesystem vulnerability scan"
-            echo "- ✔️ Secrets scanning (Gitleaks + heuristic)"
-            echo ""
-            echo "📄 Review results in Security tab and workflow logs."
-          } >> $GITHUB_STEP_SUMMARY
+          echo "# 🚀 Quick Security Scan Report" > reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> reports/quick-scan.md
+          echo "**Branch:** ${{ github.ref_name }}" >> reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "## ✅ Scans Performed" >> reports/quick-scan.md
+          echo "- CodeQL (v3, auto-detected languages)" >> reports/quick-scan.md
+          echo "- Trivy filesystem scan" >> reports/quick-scan.md
+          echo "- Gitleaks secret scan" >> reports/quick-scan.md
+          echo "- Quick Git-based secret heuristic" >> reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "## 📄 Notes" >> reports/quick-scan.md
+          echo "- CodeQL SARIF results: reports/codeql-results.sarif" >> reports/quick-scan.md
+          echo "- Trivy report: reports/trivy-report.json" >> reports/quick-scan.md
+          echo "- Gitleaks report: reports/gitleaks-report.json" >> reports/quick-scan.md
+          echo "- Quick secret heuristic: reports/quick-secrets.txt" >> reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "⚠️ This is a **fast scan**. For full security analysis, run dedicated pipelines." >> reports/quick-scan.md
+
+      # ---------- Upload Reports ----------
+      - name: Upload security reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-reports
+          path: reports/
