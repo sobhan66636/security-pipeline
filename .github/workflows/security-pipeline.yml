@@ -1,4 +1,4 @@
-name: Complete Security Scan
+name: Secure Code Scan
 
 on:
   push:
@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  security-scan:
+  code-security:
     runs-on: ubuntu-latest
     timeout-minutes: 25
 
@@ -16,22 +16,33 @@ jobs:
       contents: read
       security-events: write
 
+    strategy:
+      matrix:
+        language: [ "javascript-typescript", "python" ]
+
     steps:
-      # ----------------- Checkout -----------------
+      # --------- Checkout code ---------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ----------------- Official SAST: CodeQL -----------------
+      # --------- CodeQL Initialization ---------
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@v4
         with:
-          languages: auto
+          # Specify languages explicitly
+          languages: ${{ matrix.language }}
 
-      - name: Run CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+      # Optional build for compiled languages (if needed)
+      # Uncomment and adapt if your repo needs actual build steps
+      #- name: Autobuild
+      #  uses: github/codeql-action/autobuild@v4
 
-      # ----------------- Dependency / Vulnerability Scan -----------------
-      - name: Trivy (Filesystem Scan)
+      # --------- Run CodeQL Analysis ---------
+      - name: Run CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+
+      # --------- Vulnerability Scan (Trivy) ---------
+      - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
@@ -40,30 +51,31 @@ jobs:
           ignore-unfixed: true
           format: table
 
-      # ----------------- Secrets Scanning -----------------
-      # Option 1: Lightweight built-in
-      - name: Basic secrets check
-        continue-on-error: true
-        run: |
-          echo "🔍 Checking commits for secrets..."
-          git log -n 20 --oneline | grep -Ei "password|secret|token|apikey|api_key|access_key" || echo "No obvious secrets found"
-
-      # Option 2: Use Gitleaks (popular open-source, tested)
-      - name: Gitleaks Scan
+      # --------- Secrets Scanning (Gitleaks) ---------
+      - name: Gitleaks secret scan
         uses: zricethezav/gitleaks-action@v1.3.0
         continue-on-error: true
         with:
           args: "--redact --verbose"
 
-      # ----------------- Job Summary -----------------
-      - name: Security Scan Summary
+      # --------- Simple commit keyword secret check ---------
+      - name: Basic git secret heuristic
+        continue-on-error: true
+        run: |
+          echo "Scanning recent commits for common secrets..."
+          git log -n 20 --oneline \
+            | grep -E "password|secret|token|apikey|api_key|access_key" \
+            || echo "No obvious secrets found"
+
+      # --------- Summary ---------
+      - name: Security Summary
         run: |
           {
-            echo "### 🔒 Security Scan Complete"
+            echo "### 🔒 Security Scan Summary"
             echo ""
-            echo "- ✔️ CodeQL SAST"
-            echo "- ✔️ Trivy FS Vulnerability Scan"
-            echo "- ✔️ Secrets Check (grep + Gitleaks)"
+            echo "✔️ CodeQL analysis (languages: ${{ matrix.language }})"
+            echo "✔️ Trivy vulnerability scan"
+            echo "✔️ Secrets scanning (Gitleaks + heuristic)"
             echo ""
-            echo "📦 Artifacts can be uploaded if needed."
+            echo "📄 Review results in the Security tab and logs."
           } >> $GITHUB_STEP_SUMMARY
