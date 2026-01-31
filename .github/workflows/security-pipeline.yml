@@ -1,4 +1,4 @@
-name: Fast Security Scan
+name: Complete Security Scan
 
 on:
   push:
@@ -10,26 +10,27 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+
+    permissions:
+      contents: read
+      security-events: write
 
     steps:
-      # ---------- Checkout ----------
+      # ----------------- Checkout -----------------
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Prepare reports directory
-        run: mkdir -p reports
-
-      # ---------- SAST : Semgrep ----------
-      # v1 is the officially documented & supported major
-      - name: Semgrep (Static Analysis)
-        uses: returntocorp/semgrep-action@v1
-        continue-on-error: true
+      # ----------------- Official SAST: CodeQL -----------------
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v3
         with:
-          config: auto
+          languages: auto
 
-      # ---------- Dependency / Filesystem Scan ----------
-      # master is the ONLY consistently resolvable ref for Trivy action
+      - name: Run CodeQL Analysis
+        uses: github/codeql-action/analyze@v3
+
+      # ----------------- Dependency / Vulnerability Scan -----------------
       - name: Trivy (Filesystem Scan)
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
@@ -39,24 +40,30 @@ jobs:
           ignore-unfixed: true
           format: table
 
-      # ---------- Secrets (Zero Dependency) ----------
+      # ----------------- Secrets Scanning -----------------
+      # Option 1: Lightweight built-in
       - name: Basic secrets check
         continue-on-error: true
         run: |
-          echo "🔍 Checking recent commits for secrets..."
-          git log -n 20 --oneline | \
-          grep -Ei "password|secret|token|apikey|api_key|access_key" \
-          || echo "No obvious secrets found"
+          echo "🔍 Checking commits for secrets..."
+          git log -n 20 --oneline | grep -Ei "password|secret|token|apikey|api_key|access_key" || echo "No obvious secrets found"
 
-      # ---------- Summary ----------
-      - name: Job summary
+      # Option 2: Use Gitleaks (popular open-source, tested)
+      - name: Gitleaks Scan
+        uses: zricethezav/gitleaks-action@v1.3.0
+        continue-on-error: true
+        with:
+          args: "--redact --verbose"
+
+      # ----------------- Job Summary -----------------
+      - name: Security Scan Summary
         run: |
           {
-            echo "### 🔒 Fast Security Scan"
+            echo "### 🔒 Security Scan Complete"
             echo ""
-            echo "- ✔️ Semgrep SAST"
-            echo "- ✔️ Trivy vulnerability scan"
-            echo "- ✔️ Lightweight secrets check"
+            echo "- ✔️ CodeQL SAST"
+            echo "- ✔️ Trivy FS Vulnerability Scan"
+            echo "- ✔️ Secrets Check (grep + Gitleaks)"
             echo ""
-            echo "ℹ️ Fast, non-blocking security gate"
+            echo "📦 Artifacts can be uploaded if needed."
           } >> $GITHUB_STEP_SUMMARY
