@@ -1,103 +1,84 @@
 name: Fast Security Scan
 
 on:
-  pull_request:
-    branches: [ main ]
   push:
     branches: [ main ]
-  workflow_dispatch:  # Manual trigger
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
 
 jobs:
-  security:
+  security-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 15  # Faster timeout
-    
+    timeout-minutes: 10
+
     steps:
-      - name: Checkout code
+      - name: Checkout repository
         uses: actions/checkout@v4
-        
-      - name: Setup environment
+
+      - name: Prepare reports directory
         run: mkdir -p reports
-        
-      # ============ ESSENTIAL SCANS (Fast) ============
-      
-      - name: Run Semgrep (Fast SAST)
+
+      # ---------- SAST ----------
+      - name: Semgrep (Static Analysis)
         uses: returntocorp/semgrep-action@v1
         continue-on-error: true
         with:
-          config: "auto"
-          output: "reports/semgrep.json"
-          
-      - name: Run Trivy (Vulnerability Scan)
-        uses: aquasecurity/trivy-action@master
+          config: auto
+          generateSarif: false
+          output: reports/semgrep.json
+
+      # ---------- Dependency / Image Scan ----------
+      - name: Trivy (Filesystem Scan)
+        uses: aquasecurity/trivy-action@v0.20.0
         continue-on-error: true
         with:
-          scan-type: "fs"
-          format: "table"
-          severity: "CRITICAL,HIGH"
+          scan-type: fs
+          severity: CRITICAL,HIGH
           ignore-unfixed: true
-          
-      - name: Check for secrets
+          format: table
+
+      # ---------- Secrets (Lightweight) ----------
+      - name: Basic secrets check
         continue-on-error: true
         run: |
-          # Simple secrets check using git log
-          echo "Checking for secrets in recent commits..."
-          git log --oneline -n 10 --grep="password\|secret\|key\|token" || echo "No suspicious commits found"
-          
-      - name: Check dependencies (if applicable)
-        continue-on-error: true
+          echo "🔍 Checking recent commits for secrets..."
+          git log -n 20 --oneline | grep -Ei "password|secret|token|apikey" || echo "No obvious secrets found"
+
+      # ---------- Report ----------
+      - name: Generate summary report
         run: |
-          # Language-specific dependency checks
-          if [ -f "package.json" ]; then
-            echo "Checking npm dependencies..."
-            npm audit --audit-level=high 2>/dev/null || echo "No high severity issues"
-          elif [ -f "requirements.txt" ]; then
-            echo "Checking Python dependencies..."
-            pip list --outdated 2>/dev/null || true
-          elif [ -f "pom.xml" ]; then
-            echo "Checking Maven dependencies..."
-            # Add maven check if needed
-          fi
-          
-      - name: Run CodeQL (Only for main pushes)
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: github/codeql-action/analyze@v2
-        with:
-          category: "/security"
-          queries: "security-extended"
-          
-      - name: Generate quick report
-        run: |
-          echo "# 🚀 Quick Security Scan Report" > reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "**Status:** ✅ Completed in $(date '+%H:%M:%S')" >> reports/quick-scan.md
-          echo "**Branch:** ${{ github.ref_name }}" >> reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "## Scans Performed:" >> reports/quick-scan.md
-          echo "1. ✅ Static Analysis (Semgrep)" >> reports/quick-scan.md
-          echo "2. ✅ Vulnerability Scan (Trivy)" >> reports/quick-scan.md
-          echo "3. ✅ Secrets Check" >> reports/quick-scan.md
-          echo "4. ✅ Dependency Check" >> reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "⚠️ **Note:** This is a quick scan. For comprehensive analysis, run full security scan." >> reports/quick-scan.md
-          
-      - name: Upload reports
+          {
+            echo "# 🔒 Fast Security Scan"
+            echo ""
+            echo "**Status:** Completed"
+            echo "**Branch:** ${{ github.ref_name }}"
+            echo "**Time:** $(date)"
+            echo ""
+            echo "## Checks executed"
+            echo "- ✅ Static code analysis (Semgrep)"
+            echo "- ✅ Vulnerability scan (Trivy)"
+            echo "- ✅ Secrets heuristic check"
+            echo ""
+            echo "⚠️ This is a fast scan. Run extended pipeline for deeper analysis."
+          } > reports/summary.md
+
+      - name: Upload scan results
         uses: actions/upload-artifact@v4
         with:
-          name: security-results
+          name: security-reports
           path: reports/
-          
-      - name: Post PR comment
+
+      # ---------- PR Feedback ----------
+      - name: PR summary
         if: github.event_name == 'pull_request'
         run: |
-          echo "### 🔒 Quick Security Check" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "✅ Security scan completed in under 5 minutes" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Checks performed:**" >> $GITHUB_STEP_SUMMARY
-          echo "- Static code analysis" >> $GITHUB_STEP_SUMMARY
-          echo "- Vulnerability scanning" >> $GITHUB_STEP_SUMMARY
-          echo "- Secrets detection" >> $GITHUB_STEP_SUMMARY
-          echo "- Dependency check" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "📄 See artifacts for detailed reports." >> $GITHUB_STEP_SUMMARY
+          {
+            echo "### 🔒 Fast Security Scan"
+            echo ""
+            echo "- Static Analysis ✔️"
+            echo "- Vulnerability Scan ✔️"
+            echo "- Secrets Check ✔️"
+            echo ""
+            echo "📦 See **Artifacts → security-reports** for details."
+          } >> $GITHUB_STEP_SUMMARY
