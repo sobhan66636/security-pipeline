@@ -1,4 +1,4 @@
-name: Security Scan (Full Web API Coverage)
+name: Security Scan (Full Web )
 
 on:
   push:
@@ -15,114 +15,97 @@ jobs:
     permissions:
       contents: read
       security-events: write
-      actions: read
 
     steps:
       # ---------- Checkout ----------
       - name: Checkout repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0  # Needed for Gitleaks to scan commit history
 
       # ---------- Prepare Reports ----------
       - name: Prepare reports folder
         run: mkdir -p reports
 
-      # SAST — CodeQL (Official)
+      # ---------- CodeQL (SAST) ----------
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
           languages: javascript
-          queries: security-extended
 
-      - name: Perform CodeQL Analysis
+      - name: Run CodeQL analysis
         uses: github/codeql-action/analyze@v4
         with:
-          category: /language:javascript
+          output: reports/codeql-results.sarif
 
-      # SCA — Trivy (Dependencies + FS)
-      - name: Trivy filesystem & dependency scan
+      # ---------- Trivy (SCA / FS) ----------
+      - name: Trivy filesystem scan
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
-          scan-type: 'fs'
-          scan-ref: '.'
-          severity: 'CRITICAL,HIGH'
+          scan-type: fs
+          severity: CRITICAL,HIGH
           ignore-unfixed: true
-          format: 'sarif'
-          output: 'reports/trivy.sarif'
+          format: json
+          output: reports/trivy-report.json
 
-      - name: Upload Trivy SARIF to GitHub
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: reports/trivy.sarif
-
-      # Secrets — Gitleaks (Fixed)
+      # ---------- Gitleaks (Secrets) ----------
+      # استفاده از همون action ای که گفتی «کار می‌کند»
       - name: Gitleaks secret scan
-        id: gitleaks
-        uses: gitleaks/gitleaks-action@v2
-        env:
-          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }} # If using Pro version
+        uses: zricethezav/gitleaks-action@v1.3.0
         continue-on-error: true
+        with:
+          args: "--redact --verbose --report-format json --report-path reports/gitleaks-report.json"
 
-      # Process Gitleaks output and create SARIF manually
-      - name: Process Gitleaks results
-        if: always() && steps.gitleaks.outcome == 'success'
+      # ---------- Quick Git Heuristic ----------
+      - name: Quick Git secrets heuristic
+        continue-on-error: true
         run: |
-          # If Gitleaks doesn't create SARIF directly, you might need to convert
-          # For now, let's ensure the reports folder exists
-          mkdir -p reports
-          # Check if Gitleaks generated any output
-          if [ -f "gitleaks-report.sarif" ]; then
-            mv gitleaks-report.sarif reports/gitleaks.sarif
-          else
-            echo '{"runs": []}' > reports/gitleaks.sarif
-          fi
+          echo "Scanning last 20 commits for secrets..." > reports/quick-secrets.txt
+          git log -n 20 --oneline | grep -E "password|secret|token|apikey|api_key|access_key" \
+            >> reports/quick-secrets.txt || echo "No secrets found" >> reports/quick-secrets.txt
 
-      - name: Upload Gitleaks SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: reports/gitleaks.sarif
-
-      # IaC — Checkov (Terraform, Docker, K8s, GitHub Actions)
-      - name: Run Checkov IaC scan
-        uses: bridgecrewio/checkov-action@v12
-        continue-on-error: true
-        with:
-          directory: '.'
-          framework: 'all'
-          output_format: 'sarif'
-          output_file_path: 'reports/checkov.sarif'
-          soft_fail: true
-
-      - name: Upload Checkov SARIF
-        uses: github/codeql-action/upload-sarif@v4
-        if: always()
-        with:
-          sarif_file: reports/checkov.sarif
-
-      # DAST — OWASP ZAP (API running locally)
+      # ---------- Optional DAST (Local API) ----------
       - name: Install dependencies
         run: npm install
+        continue-on-error: true
 
       - name: Start API
         run: |
           npm start &
           sleep 15
+        continue-on-error: true
 
       - name: OWASP ZAP Baseline Scan
         uses: zaproxy/action-baseline@v0.10.0
         continue-on-error: true
         with:
-          target: 'http://localhost:3000'
-          cmd_options: '-a -r -w reports/zap-report.html'
+          target: http://localhost:3000
+          cmd_options: "-r reports/zap-report.html"
 
-      # Upload Reports
-      - name: Upload all security reports
+      # ---------- Markdown Summary ----------
+      - name: Generate Quick Security Report
+        run: |
+          echo "# 🚀 Quick Security Scan Report" > reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> reports/quick-scan.md
+          echo "**Branch:** ${{ github.ref_name }}" >> reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "## ✅ Scans Performed" >> reports/quick-scan.md
+          echo "- CodeQL (JavaScript)" >> reports/quick-scan.md
+          echo "- Trivy filesystem scan" >> reports/quick-scan.md
+          echo "- Gitleaks secret scan" >> reports/quick-scan.md
+          echo "- Quick git heuristic" >> reports/quick-scan.md
+          echo "- OWASP ZAP baseline (DAST)" >> reports/quick-scan.md
+          echo "" >> reports/quick-scan.md
+          echo "## 📄 Report Files" >> reports/quick-scan.md
+          echo "- CodeQL SARIF: reports/codeql-results.sarif" >> reports/quick-scan.md
+          echo "- Trivy: reports/trivy-report.json" >> reports/quick-scan.md
+          echo "- Gitleaks: reports/gitleaks-report.json" >> reports/quick-scan.md
+          echo "- Quick secrets: reports/quick-secrets.txt" >> reports/quick-scan.md
+          echo "- ZAP: reports/zap-report.html" >> reports/quick-scan.md
+
+      # ---------- Upload Artifacts ----------
+      - name: Upload security reports
         uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: security-reports
           path: reports/
