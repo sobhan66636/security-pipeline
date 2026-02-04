@@ -1,4 +1,4 @@
-name: Security Scan (Official + Reports)
+name: Security Scan (Full Web API Coverage)
 
 on:
   push:
@@ -10,7 +10,7 @@ on:
 jobs:
   security-scan:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
 
     permissions:
       contents: read
@@ -21,69 +21,88 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ---------- Prepare Reports Folder ----------
+      # ---------- Prepare Reports ----------
       - name: Prepare reports folder
         run: mkdir -p reports
 
-      # ---------- Initialize CodeQL v4 ----------
+
+      #  SAST — CodeQL (Official)
       - name: Initialize CodeQL
         uses: github/codeql-action/init@v4
         with:
-          languages: javascript  # JS + EJS
+          languages: javascript
 
-      # ---------- Run CodeQL ----------
       - name: Run CodeQL analysis
         uses: github/codeql-action/analyze@v4
         with:
           output: reports/codeql-results.sarif
 
-      # ---------- Trivy Filesystem Scan ----------
-      - name: Trivy filesystem scan
+      # SCA — Trivy (Dependencies + FS)
+      - name: Trivy filesystem & dependency scan
         uses: aquasecurity/trivy-action@master
         continue-on-error: true
         with:
           scan-type: fs
           severity: CRITICAL,HIGH
           ignore-unfixed: true
-          format: json
-          output: reports/trivy-report.json
+          format: sarif
+          output: reports/trivy.sarif
 
-      # ---------- Gitleaks Secret Scan ----------
+      - name: Upload Trivy SARIF to GitHub
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/trivy.sarif
+
+
+      #  Secrets — Gitleaks
       - name: Gitleaks secret scan
-        uses: zricethezav/gitleaks-action@v1.3.0
+        uses: gitleaks/gitleaks-action@v2
         continue-on-error: true
         with:
-          args: "--redact --verbose --report-format json --report-path reports/gitleaks-report.json"
+          args: >
+            detect
+            --redact
+            --report-format sarif
+            --report-path reports/gitleaks.sarif
 
-      # ---------- Quick Git-based Secret Check ----------
-      - name: Quick Git secrets heuristic
+      - name: Upload Gitleaks SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/gitleaks.sarif
+
+      #  IaC — Checkov (Terraform, Docker, K8s, GitHub Actions)
+      - name: Run Checkov IaC scan
+        uses: bridgecrewio/checkov-action@v12
         continue-on-error: true
-        run: |
-          echo "Scanning last 20 commits for secrets..." > reports/quick-secrets.txt
-          git log -n 20 --oneline | grep -E "password|secret|token|apikey|api_key|access_key" >> reports/quick-secrets.txt || echo "No secrets found" >> reports/quick-secrets.txt
+        with:
+          directory: .
+          framework: all
+          output_format: sarif
+          output_file_path: reports/checkov.sarif
 
-      # ---------- Generate Quick Markdown Report ----------
-      - name: Generate Quick Security Report
-        run: |
-          echo "# 🚀 Quick Security Scan Report" > reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "**Date:** $(date '+%Y-%m-%d %H:%M:%S')" >> reports/quick-scan.md
-          echo "**Branch:** ${{ github.ref_name }}" >> reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "## ✅ Scans Performed" >> reports/quick-scan.md
-          echo "- CodeQL (v4, JavaScript/EJS)" >> reports/quick-scan.md
-          echo "- Trivy filesystem scan" >> reports/quick-scan.md
-          echo "- Gitleaks secret scan" >> reports/quick-scan.md
-          echo "- Quick git secrets heuristic" >> reports/quick-scan.md
-          echo "" >> reports/quick-scan.md
-          echo "## 📄 Report Files" >> reports/quick-scan.md
-          echo "- CodeQL SARIF: reports/codeql-results.sarif" >> reports/quick-scan.md
-          echo "- Trivy report: reports/trivy-report.json" >> reports/quick-scan.md
-          echo "- Gitleaks report: reports/gitleaks-report.json" >> reports/quick-scan.md
-          echo "- Quick secrets heuristic: reports/quick-secrets.txt" >> reports/quick-scan.md
+      - name: Upload Checkov SARIF
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: reports/checkov.sarif
 
-      # ---------- Upload Reports ----------
-      - name: Upload security reports
+      #  DAST — OWASP ZAP (API running locally)
+      - name: Install dependencies
+        run: npm install
+
+      - name: Start API
+        run: |
+          npm start &
+          sleep 15
+
+      - name: OWASP ZAP Baseline Scan
+        uses: zaproxy/action-baseline@v0.10.0
+        continue-on-error: true
+        with:
+          target: http://localhost:3000
+          cmd_options: "-r reports/zap-report.html"
+
+      #  Upload Reports
+      - name: Upload all security reports
         uses: actions/upload-artifact@v4
         with:
           name: security-reports
