@@ -62,23 +62,17 @@ jobs:
           git log -n 20 --oneline | grep -E "password|secret|token|apikey|api_key|access_key" \
             >> reports/quick-secrets.txt || echo "No secrets found" >> reports/quick-secrets.txt
 
-      # ---------- Optional DAST (Local API) ----------
-      - name: Install dependencies
-        run: npm install
-        continue-on-error: true
-
-      - name: Start API
-        run: |
-          npm start &
-          sleep 15
-        continue-on-error: true
 
       - name: OWASP ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.10.0
         continue-on-error: true
+        uses: zaproxy/action-baseline@v0.15.0
         with:
-          target: https://www.cnet.com/
-          cmd_options: "-r reports/zap-report.html"
+          target: https://juice-shop.herokuapp.com
+          cmd_options: >
+            -r reports/zap-report.html
+            -m 1
+            -I
+
 
       # ---------- Markdown Summary ----------
       - name: Generate Quick Security Report
