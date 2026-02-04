@@ -48,11 +48,10 @@ jobs:
           output: reports/trivy-report.json
 
       # ---------- Gitleaks (Secrets) ----------
-      # استفاده از همون action ای که گفتی «کار می‌کند»
-      - name: Gitleaks secret scan
-        uses: zricethezav/gitleaks-action@v1.3.0
-        continue-on-error: true
-        with:
+      - name: Gitleaks secret scan 
+        uses: zricethezav/gitleaks-action@v1.3.0 
+        continue-on-error: true 
+        with: 
           args: "--redact --verbose --report-format json --report-path reports/gitleaks-report.json"
 
       # ---------- Quick Git Heuristic ----------
@@ -78,7 +77,7 @@ jobs:
         uses: zaproxy/action-baseline@v0.10.0
         continue-on-error: true
         with:
-          target: http://localhost:3000
+          target: https://www.cnet.com/
           cmd_options: "-r reports/zap-report.html"
 
       # ---------- Markdown Summary ----------
